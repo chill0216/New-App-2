@@ -50,6 +50,7 @@ const ui = {
   btnKeys: $("btn-keys"),
   btnOpenTab: $("btn-open-tab"),
   selfUrl: $("self-url"),
+  diag: $("diag"),
   btnShare: $("btn-share"),
   btnRetry: $("btn-retry"),
   btnSettings: $("btn-settings"),
@@ -958,7 +959,11 @@ function bindControls() {
           ? "This embedded view blocks the camera. Tap \"Open in its own tab\" below, then allow the camera there."
           : "Camera blocked. Allow camera access in your browser settings, or play with the keyboard."
         : "Couldn't start face tracking (" + (err?.message || err) + "). Keyboard still works.";
-      if (denied && isEmbedded()) ui.btnOpenTab.hidden = false;
+      if (isEmbedded()) {
+        ui.btnOpenTab.hidden = false;
+        showTopLevelLinks(topLevelUrlCandidates());
+      }
+      showDiagnostics(err);
       ui.btnCamera.disabled = false;
       ui.btnKeys.disabled = false;
     }
@@ -968,22 +973,16 @@ function bindControls() {
   // page's own URL opened as a top-level tab usually does.
   if (isEmbedded()) ui.btnOpenTab.hidden = false;
   ui.btnOpenTab.addEventListener("click", () => {
-    const url = location.href;
+    const urls = topLevelUrlCandidates();
     let win = null;
     try {
-      win = window.open(url, "_blank", "noopener");
+      win = window.open(urls[0], "_blank", "noopener");
     } catch {
       win = null;
     }
-    if (!win) {
-      // Pop-ups blocked by the host: show the address so it can be copied.
-      ui.selfUrl.textContent = url;
-      ui.selfUrl.hidden = false;
-      navigator.clipboard?.writeText(url).then(
-        () => showToast("Link copied. Paste it in a new tab."),
-        () => showToast("Long-press the link below to copy it.")
-      );
-    }
+    showTopLevelLinks(urls);
+    if (!win) showToast("Pop-ups are blocked here. Tap a link below instead.");
+    showDiagnostics();
   });
 
   ui.btnKeys.addEventListener("click", () => {
@@ -1039,6 +1038,61 @@ function bindControls() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) input.flapQueued = false;
   });
+}
+
+// Some hosts serve framed pages from "<id>.frame.<host>" and the same page
+// top-level from "<id>-top.frame.<host>". Offer that variant first.
+function topLevelUrlCandidates() {
+  const here = location.href;
+  const m = location.hostname.match(/^([^.]+)\.frame\.(.+)$/);
+  const urls = [];
+  if (m && !m[1].endsWith("-top")) {
+    urls.push(`${location.protocol}//${m[1]}-top.frame.${m[2]}${location.pathname}${location.search}`);
+  }
+  urls.push(here);
+  return urls;
+}
+
+function showTopLevelLinks(urls) {
+  ui.selfUrl.textContent = "";
+  const label = document.createElement("span");
+  label.textContent = "Open one of these in Safari or Chrome, then allow the camera:";
+  ui.selfUrl.appendChild(label);
+  for (const url of urls) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = url;
+    ui.selfUrl.appendChild(a);
+  }
+  ui.selfUrl.hidden = false;
+}
+
+async function showDiagnostics(err) {
+  const bits = [
+    `host=${location.hostname}`,
+    `framed=${isEmbedded()}`,
+    `secure=${window.isSecureContext}`,
+    `mediaDevices=${!!navigator.mediaDevices}`,
+  ];
+  if (err) bits.push(`err=${err.name || "?"}:${(err.message || "").slice(0, 60)}`);
+  try {
+    if (navigator.permissions?.query) {
+      const st = await navigator.permissions.query({ name: "camera" });
+      bits.push(`permission=${st.state}`);
+    }
+  } catch {
+    /* Safari may not support querying camera permission */
+  }
+  try {
+    const pp = document.permissionsPolicy || document.featurePolicy;
+    if (pp?.allowsFeature) bits.push(`policyAllowsCamera=${pp.allowsFeature("camera")}`);
+  } catch {
+    /* ignore */
+  }
+  ui.diag.textContent = bits.join(" · ");
+  ui.diag.hidden = false;
 }
 
 function isEmbedded() {
