@@ -142,8 +142,15 @@ const face = {
   stream: null,
   lastVideoTime: -1,
   brow: 0,
-  browBaseline: 0.08,
+  // Floor/ceiling envelopes of the brow signal. The floor tracks the resting
+  // level (snaps down, creeps up), the ceiling tracks a recent raise (snaps
+  // up, decays). Everything else works on the normalized 0..1 level between
+  // them, so people with high resting brows and small raises both work.
+  browFloor: 1,
+  browCeil: 0,
+  browLevel: 0,
   browArmed: true, // true => a raise will trigger a flap
+  lastSampleT: 0,
   blink: 0,
   blinking: false,
   lastSeen: 0,
@@ -289,25 +296,34 @@ function processBlendshapes(categories) {
   );
   face.brow += (browRaw - face.brow) * 0.6;
 
-  // Adaptive resting baseline: follows the brow down quickly and creeps up
-  // slowly, so a person's natural resting brow doesn't count as a raise.
-  const sens = settings.browSens;
-  if (face.brow < face.browBaseline) {
-    face.browBaseline += (face.brow - face.browBaseline) * 0.15;
-  } else if (face.brow < face.browBaseline + sens * 0.4) {
-    face.browBaseline += (face.brow - face.browBaseline) * 0.01;
-  }
-  face.browBaseline = Math.min(face.browBaseline, 0.45);
+  const now = performance.now();
+  const dt = face.lastSampleT ? Math.min(0.1, (now - face.lastSampleT) / 1000) : 0.033;
+  face.lastSampleT = now;
 
-  const rise = face.brow - face.browBaseline;
-  if (face.browArmed && rise > sens) {
+  const { trigger, rearm, lift } = browThresholds();
+  const wasUp = face.browLevel > lift;
+
+  // Floor: snaps down to any lower value; creeps up (quickly while the brow
+  // is relaxed, slowly while it is held up so a long glide doesn't kill it).
+  if (face.brow < face.browFloor) face.browFloor = face.brow;
+  else face.browFloor += (wasUp ? 0.03 : 0.15) * dt;
+  // Ceiling: snaps up to any higher value, decays so a modest raise after a
+  // huge one still counts. Never let the range collapse.
+  if (face.brow > face.browCeil) face.browCeil = face.brow;
+  else face.browCeil -= 0.15 * dt;
+  face.browCeil = Math.max(face.browCeil, face.browFloor + BROW_MIN_RANGE);
+
+  const level = (face.brow - face.browFloor) / (face.browCeil - face.browFloor);
+  face.browLevel = clamp(level, 0, 1.2);
+
+  if (face.browArmed && level > trigger) {
     face.browArmed = false;
     queueFlap();
-  } else if (!face.browArmed && rise < sens * 0.45) {
+  } else if (!face.browArmed && level < rearm) {
     face.browArmed = true;
   }
-  input.faceLift = rise > sens * 0.5;
-  input.browLevel = clamp(rise / sens, 0, 1.25);
+  input.faceLift = level > lift;
+  input.browLevel = face.browLevel;
 
   // --- Blink --------------------------------------------------------------
   const blinkRaw = (score("eyeBlinkLeft") + score("eyeBlinkRight")) / 2;
@@ -319,11 +335,19 @@ function processBlendshapes(categories) {
   input.blinkLevel = clamp(face.blink, 0, 1);
 }
 
+// The sensitivity slider (0.12..0.7, default 0.35) maps to the normalized
+// level a raise must reach to flap. Lower slider = flaps on a smaller raise.
+const BROW_MIN_RANGE = 0.25;
+function browThresholds() {
+  const trigger = clamp(0.2 + settings.browSens * 0.9, 0.25, 0.9);
+  return { trigger, rearm: trigger * 0.55, lift: trigger * 0.75 };
+}
+
 function updateFaceHud() {
   if (!input.usingFace) return;
-  const browPct = clamp(input.browLevel * 100 * 0.8, 0, 100); // threshold line sits at 80%
-  ui.meterBrow.style.width = browPct + "%";
-  ui.thrBrow.style.left = "80%";
+  const { trigger } = browThresholds();
+  ui.meterBrow.style.width = clamp(input.browLevel * 100, 0, 100) + "%";
+  ui.thrBrow.style.left = clamp(trigger * 100, 0, 100) + "%";
   ui.meterBlink.style.width = clamp(input.blinkLevel * 100, 0, 100) + "%";
   ui.thrBlink.style.left = clamp(settings.blinkThr * 100, 0, 100) + "%";
   if (input.faceFound) {
@@ -1221,4 +1245,4 @@ function boot() {
 boot();
 
 // Exposed for debugging/automation only.
-window.__ebfb = { state, input, settings, queueFlap };
+window.__ebfb = { state, input, settings, queueFlap, processBlendshapes, face };
