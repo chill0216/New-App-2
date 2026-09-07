@@ -136,33 +136,90 @@ const face = {
   lastSeen: 0,
 };
 
+// The face engine can come from two places:
+//  1. CDN (default for the repo): MediaPipe's JS bundle + WASM + model are
+//     fetched at runtime.
+//  2. Inline (standalone build, see build-standalone.mjs): the loader script,
+//     the JS bundle, and gzipped+base64 copies of the WASM binary and the
+//     model are embedded in the page, so it runs with zero network access.
+function hasInlineEngine() {
+  return !!(
+    window.MP &&
+    window.ModuleFactory &&
+    document.getElementById("mp-wasm") &&
+    document.getElementById("mp-model")
+  );
+}
+
+async function decodeInlineAsset(id) {
+  const b64 = document.getElementById(id).textContent.replace(/\s+/g, "");
+  const bin = atob(b64);
+  const packed = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) packed[i] = bin.charCodeAt(i);
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("This browser can't unpack the bundled face model (no DecompressionStream).");
+  }
+  const stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+const LANDMARKER_OPTIONS = {
+  outputFaceBlendshapes: true,
+  outputFacialTransformationMatrixes: false,
+  runningMode: "VIDEO",
+  numFaces: 1,
+};
+
+async function createWithFallback(create) {
+  try {
+    return await create("GPU");
+  } catch (err) {
+    console.warn("GPU delegate failed, falling back to CPU", err);
+    return await create("CPU");
+  }
+}
+
 function loadModel() {
   if (face.modelPromise) return face.modelPromise;
-  face.modelPromise = (async () => {
-    const { FaceLandmarker, FilesetResolver } = await import(MP_URL);
-    const vision = await FilesetResolver.forVisionTasks(`${MP_URL}/wasm`);
-    let landmarker;
-    try {
-      landmarker = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
-        outputFaceBlendshapes: true,
-        outputFacialTransformationMatrixes: false,
-        runningMode: "VIDEO",
-        numFaces: 1,
-      });
-    } catch (err) {
-      console.warn("GPU delegate failed, falling back to CPU", err);
-      landmarker = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: "CPU" },
-        outputFaceBlendshapes: true,
-        runningMode: "VIDEO",
-        numFaces: 1,
-      });
-    }
-    face.landmarker = landmarker;
-    return landmarker;
-  })();
+  face.modelPromise = hasInlineEngine() ? loadInlineEngine() : loadCdnEngine();
   return face.modelPromise;
+}
+
+async function loadCdnEngine() {
+  const { FaceLandmarker, FilesetResolver } = await import(MP_URL);
+  const vision = await FilesetResolver.forVisionTasks(`${MP_URL}/wasm`);
+  face.landmarker = await createWithFallback((delegate) =>
+    FaceLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      ...LANDMARKER_OPTIONS,
+    })
+  );
+  return face.landmarker;
+}
+
+async function loadInlineEngine() {
+  setLoadStatus("Unpacking face tracker…");
+  const [wasmBytes, modelBytes] = await Promise.all([
+    decodeInlineAsset("mp-wasm"),
+    decodeInlineAsset("mp-model"),
+  ]);
+  const { FaceLandmarker } = window.MP;
+  // An empty loader path tells MediaPipe to use the already-defined global
+  // ModuleFactory instead of injecting a <script>; Module.wasmBinary makes
+  // Emscripten instantiate from memory instead of fetching the .wasm.
+  const fileset = { wasmLoaderPath: "", wasmBinaryPath: "vision_wasm_internal.wasm" };
+  face.landmarker = await createWithFallback((delegate) => {
+    window.Module = { wasmBinary: wasmBytes.slice() };
+    return FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetBuffer: modelBytes, delegate },
+      ...LANDMARKER_OPTIONS,
+    });
+  });
+  return face.landmarker;
+}
+
+function setLoadStatus(msg) {
+  if (!ui.overlayStart.hidden) ui.loadStatus.textContent = msg;
 }
 
 async function startCamera() {
@@ -894,8 +951,11 @@ function bindControls() {
     } catch (err) {
       console.error(err);
       const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+      const embedded = window.top !== window.self;
       ui.loadStatus.textContent = denied
-        ? "Camera blocked. Allow camera access, or play with the keyboard."
+        ? embedded
+          ? "The camera is blocked in this embedded view. Open the page in its own tab, then try again. Keyboard still works."
+          : "Camera blocked. Allow camera access, or play with the keyboard."
         : "Couldn't start face tracking (" + (err?.message || err) + "). Keyboard still works.";
       ui.btnCamera.disabled = false;
       ui.btnKeys.disabled = false;
@@ -1036,12 +1096,16 @@ function boot() {
   // player has granted camera access.
   loadModel()
     .then(() => {
-      ui.loadStatus.textContent = "Face model ready. Camera stays on your device.";
+      setLoadStatus("Face tracker ready. Your camera stays on your device.");
       ui.btnCamera.disabled = false;
     })
     .catch((err) => {
       console.error(err);
-      ui.loadStatus.textContent = "Couldn't load the face model (offline?). Keyboard mode still works.";
+      setLoadStatus(
+        hasInlineEngine()
+          ? "Couldn't start the face tracker (" + (err?.message || err) + "). Keyboard mode still works."
+          : "Couldn't load the face model (offline?). Keyboard mode still works."
+      );
       ui.btnCamera.disabled = true;
     });
 }

@@ -26,6 +26,16 @@ python3 -m http.server 8000
 The first load downloads the MediaPipe WASM runtime and the face model (about
 3.5 MB) from the CDN.
 
+### Standalone single-file build
+
+`npm run build` writes `dist/eyebrow-flappy-bird.html`: one self-contained
+page with the game, MediaPipe's runtime, and gzipped copies of the WASM binary
+and face model embedded inline (about 8.7 MB). It needs no network access at
+all, which makes it work on hosts with strict content security policies
+(for example a claude.ai Artifact) and offline. The first run does
+`npm install` for the MediaPipe package and downloads the model once into
+`.cache/`.
+
 ### Deploying
 
 The included GitHub Actions workflow (`.github/workflows/pages.yml`) publishes
