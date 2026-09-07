@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Eyebrow Flappy Bird</title>
+  <meta name="description" content="Flappy Bird you play with your face: raise your eyebrows to flap, blink to duck." />
+  <meta property="og:title" content="Eyebrow Flappy Bird" />
+  <meta property="og:description" content="Raise your eyebrows to flap. Blink to duck. Yes, really." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A4%A8%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app">
+    <div id="stage">
+      <canvas id="game" width="480" height="640" aria-label="Eyebrow Flappy Bird game"></canvas>
+
+      <!-- Start / loading overlay -->
+      <section id="overlay-start" class="overlay">
+        <div class="card">
+          <h1>🤨 Eyebrow<br/>Flappy Bird</h1>
+          <p class="tagline">Raise your eyebrows to <b>flap</b>.<br/>Blink to <b>duck</b>. Yes, really.</p>
+          <p id="load-status" class="status">Loading face model…</p>
+          <div class="buttons">
+            <button id="btn-camera" class="primary" disabled>📷 Play with my face</button>
+            <button id="btn-keys" class="secondary">⌨️ Keyboard instead</button>
+          </div>
+          <p class="fineprint">Video never leaves your device. All face tracking runs in your browser.</p>
+        </div>
+      </section>
+
+      <!-- Game over overlay -->
+      <section id="overlay-dead" class="overlay" hidden>
+        <div class="card">
+          <h2 id="dead-title">Splat.</h2>
+          <div class="scores">
+            <div><span class="label">Score</span><span id="dead-score" class="big">0</span></div>
+            <div><span class="label">Best</span><span id="dead-best" class="big">0</span></div>
+          </div>
+          <p id="dead-hint" class="status">Raise your eyebrows to go again</p>
+          <div class="buttons">
+            <button id="btn-share" class="primary">📣 Share score</button>
+            <button id="btn-retry" class="secondary">↻ Play again</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live face HUD -->
+      <aside id="face-hud" hidden>
+        <video id="cam" playsinline muted autoplay></video>
+        <div class="meters">
+          <div class="meter" title="Eyebrow raise">
+            <span class="icon">🤨</span>
+            <div class="track"><div id="meter-brow" class="fill"></div><div id="thr-brow" class="thr"></div></div>
+          </div>
+          <div class="meter" title="Blink">
+            <span class="icon">😑</span>
+            <div class="track"><div id="meter-blink" class="fill blink"></div><div id="thr-blink" class="thr"></div></div>
+          </div>
+        </div>
+        <div id="face-status" class="face-status">no face</div>
+      </aside>
+
+      <button id="btn-settings" class="icon-btn" title="Settings" aria-label="Settings">⚙️</button>
+      <button id="btn-mute" class="icon-btn" title="Sound" aria-label="Toggle sound">🔊</button>
+    </div>
+
+    <!-- Settings drawer -->
+    <section id="settings" class="drawer" hidden>
+      <h3>Tuning</h3>
+      <label>
+        <span>Eyebrow sensitivity <small id="val-brow">0.35</small></span>
+        <input id="rng-brow" type="range" min="0.12" max="0.7" step="0.01" value="0.35" />
+        <small>Lower = flaps on a subtle raise. Raise it if the bird flaps on its own.</small>
+      </label>
+      <label>
+        <span>Blink threshold <small id="val-blink">0.50</small></span>
+        <input id="rng-blink" type="range" min="0.25" max="0.8" step="0.01" value="0.5" />
+        <small>Lower = ducks on a half-blink. Raise it if you duck by accident.</small>
+      </label>
+      <label class="row">
+        <input id="chk-cam" type="checkbox" checked />
+        <span>Show camera preview</span>
+      </label>
+      <p class="fineprint">Keyboard: <kbd>Space</kbd> / <kbd>↑</kbd> flap · hold <kbd>↓</kbd> to duck · tap screen to flap.</p>
+      <button id="btn-close-settings" class="secondary">Done</button>
+    </section>
+  </main>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>
