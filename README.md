@@ -2,7 +2,7 @@
 
 Flappy Bird, except the controller is your face.
 
-- **Raise your eyebrows** → the bird flaps.
+- **Raise your eyebrows** → the bird flaps. Keep them up to glide.
 - **Blink** → the bird ducks (squashes flat and drops faster). Some pipes have a
   gap so narrow you *must* blink to get through. Yes, that means flying blind.
 
@@ -47,6 +47,7 @@ repository settings: **Settings → Pages → Source: GitHub Actions**.
 | Action | Face                | Keyboard / touch            |
 | ------ | ------------------- | --------------------------- |
 | Flap   | Raise both eyebrows | `Space`, `↑`, `W`, or tap   |
+| Glide  | Hold eyebrows up    | Hold the same key or touch  |
 | Duck   | Blink (hold to stay ducked) | Hold `↓` or `S`     |
 | Mute   |                     | `M`                         |
 

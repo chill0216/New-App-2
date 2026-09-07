@@ -16,10 +16,15 @@ const H = 640;
 const GROUND_H = 76;
 const SKY_H = H - GROUND_H;
 
-const GRAVITY = 1650;
-const FLAP_VY = -470;
-const DUCK_GRAVITY_MULT = 1.75;
-const MAX_FALL = 720;
+// Tuned for eyebrow cadence (about one raise per second), not finger taps:
+// a flap lifts ~80px and takes ~1s to come back down. Holding the brows up
+// glides (weak gravity, slow max descent); blinking ducks (heavy gravity).
+const GRAVITY = 700;
+const FLAP_VY = -340;
+const GLIDE_GRAVITY_MULT = 0.3;
+const GLIDE_MAX_FALL = 90;
+const DUCK_GRAVITY_MULT = 1.35;
+const MAX_FALL = 520;
 
 const BIRD_X = 130;
 const BIRD_W = 40; // hitbox width
@@ -29,7 +34,7 @@ const BIRD_H_DUCK = 15; // hitbox height (ducking)
 const PIPE_W = 72;
 const PIPE_SPACING = 275;
 const GAP_NORMAL = 185;
-const GAP_DUCK = 92;
+const GAP_DUCK = 108;
 const FIRST_PIPE_X = W + 140;
 
 const RESTART_DELAY_MS = 750;
@@ -109,6 +114,8 @@ const input = {
   flapQueued: false,
   keyDuck: false,
   faceDuck: false,
+  keyLift: false,
+  faceLift: false,
   // Continuous levels 0..1 used to animate the bird's face.
   browLevel: 0,
   blinkLevel: 0,
@@ -116,6 +123,9 @@ const input = {
   usingFace: false,
   get duck() {
     return this.keyDuck || this.faceDuck;
+  },
+  get lift() {
+    return this.keyLift || this.faceLift;
   },
 };
 
@@ -253,6 +263,7 @@ function faceLoop() {
     } else if (performance.now() - face.lastSeen > 400) {
       input.faceFound = false;
       input.faceDuck = false;
+      input.faceLift = false;
       face.blinking = false;
     }
   }
@@ -295,6 +306,7 @@ function processBlendshapes(categories) {
   } else if (!face.browArmed && rise < sens * 0.45) {
     face.browArmed = true;
   }
+  input.faceLift = rise > sens * 0.5;
   input.browLevel = clamp(rise / sens, 0, 1.25);
 
   // --- Blink --------------------------------------------------------------
@@ -426,7 +438,7 @@ function initClouds() {
 }
 
 function speedForScore(score) {
-  return 175 + Math.min(score, 40) * 3;
+  return 160 + Math.min(score, 40) * 2.5;
 }
 
 function spawnPipe(x) {
@@ -488,8 +500,8 @@ function update(dt) {
   if (input.usingFace) {
     b.browAnim = lerp(b.browAnim, input.browLevel, 1 - Math.exp(-dt * 18));
   } else {
-    // Keyboard: a flap pops the brow up, then it relaxes back down.
-    b.browAnim = lerp(b.browAnim, 0, 1 - Math.exp(-dt * 5));
+    // Keyboard: a flap pops the brow up; it stays up while held, then relaxes.
+    b.browAnim = lerp(b.browAnim, input.keyLift ? 1 : 0, 1 - Math.exp(-dt * 5));
   }
   const targetBlink = input.usingFace ? input.blinkLevel : input.duck ? 1 : 0;
   b.blinkAnim = lerp(b.blinkAnim, targetBlink, 1 - Math.exp(-dt * 22));
@@ -550,8 +562,10 @@ function update(dt) {
     input.flapQueued = false;
     flap();
   }
-  const g = GRAVITY * (ducking ? DUCK_GRAVITY_MULT : 1);
-  b.vy = Math.min(MAX_FALL, b.vy + g * dt);
+  // Brows up = glide (works while ducking too); blink = duck (a bit heavier).
+  const gliding = input.lift;
+  const g = GRAVITY * (gliding ? GLIDE_GRAVITY_MULT : 1) * (ducking ? DUCK_GRAVITY_MULT : 1);
+  b.vy = Math.min(gliding ? GLIDE_MAX_FALL : MAX_FALL, b.vy + g * dt);
   b.y += b.vy * dt;
   if (b.y < 8) {
     b.y = 8;
@@ -916,6 +930,7 @@ function bindControls() {
     if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
       e.preventDefault();
       ensureAudio();
+      input.keyLift = true;
       queueFlap();
     } else if (e.code === "ArrowDown" || e.code === "KeyS") {
       e.preventDefault();
@@ -926,14 +941,21 @@ function bindControls() {
   });
   window.addEventListener("keyup", (e) => {
     if (e.code === "ArrowDown" || e.code === "KeyS") input.keyDuck = false;
+    if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") input.keyLift = false;
   });
 
   // Tap / click on the canvas flaps (handy on phones when your face is busy).
   canvas.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     ensureAudio();
+    input.keyLift = true;
     queueFlap();
   });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) {
+    canvas.addEventListener(ev, () => {
+      input.keyLift = false;
+    });
+  }
 
   ui.btnCamera.addEventListener("click", async () => {
     ensureAudio();
@@ -950,7 +972,7 @@ function bindControls() {
       faceLoop();
       ui.overlayStart.hidden = true;
       state.mode = "ready";
-      showToast("Raise your eyebrows to start! 🤨");
+      showToast("Raise eyebrows: flap · hold up: glide · blink: duck");
     } catch (err) {
       console.error(err);
       const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
@@ -990,7 +1012,7 @@ function bindControls() {
     input.usingFace = false;
     ui.overlayStart.hidden = true;
     state.mode = "ready";
-    showToast("Space to flap · hold ↓ to duck");
+    showToast("Space: flap · hold Space: glide · hold ↓: duck");
   });
 
   ui.btnRetry.addEventListener("click", () => {
