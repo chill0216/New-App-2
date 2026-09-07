@@ -48,6 +48,8 @@ const ui = {
   loadStatus: $("load-status"),
   btnCamera: $("btn-camera"),
   btnKeys: $("btn-keys"),
+  btnOpenTab: $("btn-open-tab"),
+  selfUrl: $("self-url"),
   btnShare: $("btn-share"),
   btnRetry: $("btn-retry"),
   btnSettings: $("btn-settings"),
@@ -951,14 +953,36 @@ function bindControls() {
     } catch (err) {
       console.error(err);
       const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
-      const embedded = window.top !== window.self;
       ui.loadStatus.textContent = denied
-        ? embedded
-          ? "The camera is blocked in this embedded view. Open the page in its own tab, then try again. Keyboard still works."
-          : "Camera blocked. Allow camera access, or play with the keyboard."
+        ? isEmbedded()
+          ? "This embedded view blocks the camera. Tap \"Open in its own tab\" below, then allow the camera there."
+          : "Camera blocked. Allow camera access in your browser settings, or play with the keyboard."
         : "Couldn't start face tracking (" + (err?.message || err) + "). Keyboard still works.";
+      if (denied && isEmbedded()) ui.btnOpenTab.hidden = false;
       ui.btnCamera.disabled = false;
       ui.btnKeys.disabled = false;
+    }
+  });
+
+  // When the page is framed by a host that doesn't grant camera access, the
+  // page's own URL opened as a top-level tab usually does.
+  if (isEmbedded()) ui.btnOpenTab.hidden = false;
+  ui.btnOpenTab.addEventListener("click", () => {
+    const url = location.href;
+    let win = null;
+    try {
+      win = window.open(url, "_blank", "noopener");
+    } catch {
+      win = null;
+    }
+    if (!win) {
+      // Pop-ups blocked by the host: show the address so it can be copied.
+      ui.selfUrl.textContent = url;
+      ui.selfUrl.hidden = false;
+      navigator.clipboard?.writeText(url).then(
+        () => showToast("Link copied. Paste it in a new tab."),
+        () => showToast("Long-press the link below to copy it.")
+      );
     }
   });
 
@@ -1015,6 +1039,14 @@ function bindControls() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) input.flapQueued = false;
   });
+}
+
+function isEmbedded() {
+  try {
+    return window.top !== window.self;
+  } catch {
+    return true;
+  }
 }
 
 function toggleMute() {
